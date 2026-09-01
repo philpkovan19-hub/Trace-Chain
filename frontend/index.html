@@ -1,0 +1,1587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TraceChain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.9.0/ethers.umd.min.js"></script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#050510;
+  --cyan:#00f0ff;
+  --magenta:#ff00e5;
+  --green:#00ff88;
+  --surface:rgba(0,240,255,0.03);
+  --surface-hover:rgba(0,240,255,0.07);
+  --border:rgba(0,240,255,0.1);
+  --text:#e0e8f0;
+  --text-dim:#6a7a8e;
+  --text-muted:#3a4a5e;
+  --danger:#ff2255;
+  --font-mono:'Share Tech Mono',monospace;
+  --font-body:'Inter',sans-serif;
+}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font-body);
+  font-size:14px;
+  line-height:1.6;
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* ── Scanline Overlay ── */
+body::before{
+  content:'';position:fixed;inset:0;z-index:9999;pointer-events:none;
+  background:repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 2px,
+    rgba(0,240,255,0.008) 2px,
+    rgba(0,240,255,0.008) 4px
+  );
+}
+
+/* ── Holographic Mesh Background ── */
+.holo-mesh{
+  position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
+}
+.holo-mesh .blob{
+  position:absolute;border-radius:50%;
+  filter:blur(140px);opacity:0.3;will-change:transform;
+}
+.blob-1{
+  width:700px;height:700px;
+  background:radial-gradient(circle,rgba(0,240,255,0.4) 0%,transparent 70%);
+  top:-15%;left:-10%;
+  animation:hdrift1 28s ease-in-out infinite alternate;
+}
+.blob-2{
+  width:600px;height:600px;
+  background:radial-gradient(circle,rgba(255,0,229,0.35) 0%,transparent 70%);
+  top:40%;right:-15%;
+  animation:hdrift2 32s ease-in-out infinite alternate;
+}
+.blob-3{
+  width:500px;height:500px;
+  background:radial-gradient(circle,rgba(0,240,255,0.3) 0%,transparent 70%);
+  bottom:-10%;left:25%;
+  animation:hdrift3 26s ease-in-out infinite alternate;
+}
+.blob-4{
+  width:450px;height:450px;
+  background:radial-gradient(circle,rgba(255,0,229,0.25) 0%,transparent 70%);
+  top:10%;left:50%;
+  animation:hdrift4 30s ease-in-out infinite alternate;
+}
+@keyframes hdrift1{0%{transform:translate(0,0) scale(1)}100%{transform:translate(120px,100px) scale(1.2)}}
+@keyframes hdrift2{0%{transform:translate(0,0) scale(1)}100%{transform:translate(-100px,80px) scale(1.15)}}
+@keyframes hdrift3{0%{transform:translate(0,0) scale(1)}100%{transform:translate(80px,-120px) scale(1.1)}}
+@keyframes hdrift4{0%{transform:translate(0,0) scale(1)}100%{transform:translate(-60px,-80px) scale(1.25)}}
+
+/* ── Perspective Grid Floor ── */
+.grid-floor{
+  position:fixed;bottom:0;left:0;right:0;height:45vh;z-index:0;pointer-events:none;
+  background:
+    linear-gradient(to top,rgba(0,240,255,0.06) 0%,transparent 100%),
+    repeating-linear-gradient(90deg,rgba(0,240,255,0.04) 0px,rgba(0,240,255,0.04) 1px,transparent 1px,transparent 80px),
+    repeating-linear-gradient(0deg,rgba(0,240,255,0.04) 0px,rgba(0,240,255,0.04) 1px,transparent 1px,transparent 80px);
+  transform:perspective(500px) rotateX(55deg);
+  transform-origin:bottom center;
+  mask-image:linear-gradient(to top,rgba(0,0,0,0.6) 0%,transparent 100%);
+  -webkit-mask-image:linear-gradient(to top,rgba(0,0,0,0.6) 0%,transparent 100%);
+}
+
+/* ── Floating Particles ── */
+.particles{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}
+.particle{
+  position:absolute;border-radius:50%;
+  animation:pfloat linear infinite;
+  opacity:0;
+}
+@keyframes pfloat{
+  0%{transform:translateY(100vh) scale(0);opacity:0}
+  10%{opacity:1}
+  90%{opacity:1}
+  100%{transform:translateY(-10vh) scale(1);opacity:0}
+}
+
+/* ── Top Bar ── */
+.topbar{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 32px;height:64px;
+  background:rgba(5,5,16,0.75);
+  backdrop-filter:blur(24px);
+  border-bottom:1px solid rgba(0,240,255,0.12);
+}
+.topbar::after{
+  content:'';position:absolute;bottom:-1px;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan),var(--magenta),transparent);
+  opacity:0.5;
+}
+.topbar-brand{
+  display:flex;align-items:center;gap:12px;
+  font-family:var(--font-mono);font-weight:400;font-size:20px;
+  color:var(--cyan);letter-spacing:0.05em;
+  text-shadow:0 0 20px rgba(0,240,255,0.5);
+  position:relative;
+}
+.topbar-brand .logo-text{
+  animation:glitch 4s infinite;
+  position:relative;
+}
+.topbar-brand .logo-text::before,
+.topbar-brand .logo-text::after{
+  content:'TraceChain';
+  position:absolute;top:0;left:0;
+  overflow:hidden;
+}
+.topbar-brand .logo-text::before{
+  color:var(--magenta);
+  clip-path:inset(0 0 65% 0);
+  animation:glitch-top 4s infinite;
+}
+.topbar-brand .logo-text::after{
+  color:var(--green);
+  clip-path:inset(65% 0 0 0);
+  animation:glitch-bottom 4s infinite;
+}
+@keyframes glitch{
+  0%,92%,100%{transform:none}
+  93%{transform:translate(-2px,1px)}
+  94%{transform:translate(2px,-1px)}
+  95%{transform:translate(-1px,2px)}
+  96%{transform:none}
+}
+@keyframes glitch-top{
+  0%,92%,100%{transform:none;opacity:0}
+  93%{transform:translate(3px,0);opacity:0.8}
+  94%{transform:translate(-3px,0);opacity:0.8}
+  95%{transform:translate(2px,0);opacity:0.8}
+  96%{transform:none;opacity:0}
+}
+@keyframes glitch-bottom{
+  0%,92%,100%{transform:none;opacity:0}
+  93%{transform:translate(-3px,0);opacity:0.8}
+  94%{transform:translate(3px,0);opacity:0.8}
+  95%{transform:translate(-2px,0);opacity:0.8}
+  96%{transform:none;opacity:0}
+}
+
+.topbar-actions{display:flex;align-items:center;gap:12px}
+
+/* ── Buttons ── */
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:10px 20px;border:none;border-radius:4px;
+  font-family:var(--font-mono);font-size:13px;
+  cursor:pointer;transition:all 0.3s ease;
+  position:relative;text-transform:uppercase;letter-spacing:0.05em;
+}
+.btn-primary{
+  background:transparent;
+  color:var(--cyan);
+  border:1px solid var(--cyan);
+  box-shadow:0 0 12px rgba(0,240,255,0.15),inset 0 0 12px rgba(0,240,255,0.05);
+}
+.btn-primary:hover{
+  background:rgba(0,240,255,0.1);
+  box-shadow:0 0 24px rgba(0,240,255,0.3),inset 0 0 24px rgba(0,240,255,0.1);
+  transform:translateY(-1px);
+}
+.btn-secondary{
+  background:rgba(255,0,229,0.05);
+  color:var(--magenta);
+  border:1px solid rgba(255,0,229,0.3);
+}
+.btn-secondary:hover{
+  background:rgba(255,0,229,0.12);
+  box-shadow:0 0 20px rgba(255,0,229,0.2);
+}
+.btn-danger{
+  background:rgba(255,34,85,0.08);
+  color:var(--danger);
+  border:1px solid rgba(255,34,85,0.25);
+}
+.btn-danger:hover{background:rgba(255,34,85,0.18)}
+.btn-green{
+  background:transparent;
+  color:var(--green);
+  border:1px solid rgba(0,255,136,0.3);
+}
+.btn-green:hover{
+  background:rgba(0,255,136,0.1);
+  box-shadow:0 0 20px rgba(0,255,136,0.2);
+}
+
+/* ── Main Content ── */
+.main{
+  position:relative;z-index:2;
+  max-width:1200px;margin:0 auto;
+  padding:40px 24px 80px;
+}
+
+/* ── HUD Card with corner brackets ── */
+.hud-card{
+  position:relative;
+  background:rgba(5,5,16,0.8);
+  border:1px solid rgba(0,240,255,0.1);
+  backdrop-filter:blur(12px);
+  padding:24px;
+  transition:all 0.3s ease;
+}
+.hud-card::before,.hud-card::after,
+.hud-card .corner-br::before,.hud-card .corner-br::after{
+  content:'';position:absolute;
+  width:16px;height:16px;
+  border-color:var(--cyan);border-style:solid;
+  transition:border-color 0.3s;
+}
+.hud-card::before{top:-1px;left:-1px;border-width:2px 0 0 2px;border-right:0;border-bottom:0}
+.hud-card::after{top:-1px;right:-1px;border-width:2px 2px 0 0;border-left:0;border-bottom:0}
+.hud-card .corner-br::before{bottom:-1px;left:-1px;border-width:0 0 2px 2px;border-right:0;border-top:0}
+.hud-card .corner-br::after{bottom:-1px;right:-1px;border-width:0 2px 2px 0;border-left:0;border-top:0}
+.hud-card:hover{
+  border-color:rgba(0,240,255,0.2);
+  box-shadow:0 0 30px rgba(0,240,255,0.05);
+}
+.hud-card.magenta-card{border-color:rgba(255,0,229,0.1)}
+.hud-card.magenta-card::before,.hud-card.magenta-card::after,
+.hud-card.magenta-card .corner-br::before,.hud-card.magenta-card .corner-br::after{
+  border-color:var(--magenta);
+}
+.hud-card.magenta-card:hover{border-color:rgba(255,0,229,0.2);box-shadow:0 0 30px rgba(255,0,229,0.05)}
+
+/* ── Stats Section ── */
+.stats-section{
+  display:flex;align-items:center;justify-content:center;
+  gap:24px;margin-bottom:48px;flex-wrap:wrap;
+}
+.stats-left,.stats-right{
+  display:flex;flex-direction:column;gap:16px;
+  flex:0 0 200px;
+}
+.stat-card{
+  position:relative;
+  background:rgba(5,5,16,0.8);
+  border:1px solid rgba(0,240,255,0.08);
+  padding:20px;
+  backdrop-filter:blur(10px);
+  transition:all 0.3s ease;
+}
+.stat-card::before,.stat-card::after{
+  content:'';position:absolute;width:12px;height:12px;
+  border-color:var(--cyan);border-style:solid;transition:all 0.3s;
+}
+.stat-card::before{top:-1px;left:-1px;border-width:1px 0 0 1px}
+.stat-card::after{bottom:-1px;right:-1px;border-width:0 1px 1px 0}
+.stat-card:hover{
+  border-color:rgba(0,240,255,0.2);
+  transform:translateY(-2px);
+  box-shadow:0 8px 32px rgba(0,0,0,0.4),0 0 20px rgba(0,240,255,0.05);
+}
+.stat-card.magenta::before,.stat-card.magenta::after{border-color:var(--magenta)}
+.stat-card.magenta{border-color:rgba(255,0,229,0.08)}
+.stat-card.magenta:hover{border-color:rgba(255,0,229,0.2);box-shadow:0 8px 32px rgba(0,0,0,0.4),0 0 20px rgba(255,0,229,0.05)}
+.stat-label{
+  font-size:10px;font-weight:500;
+  color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:0.12em;
+  font-family:var(--font-mono);
+  margin-bottom:8px;
+}
+.stat-value{
+  font-family:var(--font-mono);font-size:28px;
+  color:var(--text);
+}
+.stat-value.cyan{color:var(--cyan);text-shadow:0 0 20px rgba(0,240,255,0.3)}
+.stat-value.magenta{color:var(--magenta);text-shadow:0 0 20px rgba(255,0,229,0.3)}
+.stat-value.green{color:var(--green);text-shadow:0 0 20px rgba(0,255,136,0.3)}
+
+/* ── Center Visualization ── */
+.viz-wrap{
+  flex:0 0 auto;
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+}
+.supply-viz{
+  width:260px;height:260px;
+  position:relative;
+  display:flex;align-items:center;justify-content:center;
+}
+.viz-ring{
+  position:absolute;inset:0;
+  border-radius:50%;
+  border:1px solid rgba(0,240,255,0.15);
+  animation:vizRotate 20s linear infinite;
+}
+.viz-ring:nth-child(2){
+  inset:20px;
+  border-color:rgba(255,0,229,0.12);
+  animation-duration:25s;
+  animation-direction:reverse;
+}
+.viz-ring:nth-child(3){
+  inset:40px;
+  border-color:rgba(0,255,136,0.1);
+  animation-duration:30s;
+}
+@keyframes vizRotate{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+
+/* Stage nodes on the ring */
+.viz-node{
+  position:absolute;
+  width:48px;height:48px;
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-mono);font-size:9px;
+  text-transform:uppercase;letter-spacing:0.08em;
+  z-index:2;
+}
+.viz-node-inner{
+  width:100%;height:100%;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:2px;
+}
+.viz-node.created{
+  top:8px;left:50%;transform:translateX(-50%);
+}
+.viz-node.created .viz-node-inner{
+  background:rgba(0,240,255,0.1);border:1px solid var(--cyan);
+  color:var(--cyan);box-shadow:0 0 16px rgba(0,240,255,0.2);
+}
+.viz-node.transit{
+  bottom:30px;left:12px;
+}
+.viz-node.transit .viz-node-inner{
+  background:rgba(255,0,229,0.1);border:1px solid var(--magenta);
+  color:var(--magenta);box-shadow:0 0 16px rgba(255,0,229,0.2);
+}
+.viz-node.delivered{
+  bottom:30px;right:12px;
+}
+.viz-node.delivered .viz-node-inner{
+  background:rgba(0,255,136,0.1);border:1px solid var(--green);
+  color:var(--green);box-shadow:0 0 16px rgba(0,255,136,0.2);
+}
+
+/* Connecting lines */
+.viz-line{
+  position:absolute;z-index:1;
+  background:linear-gradient(90deg,var(--cyan),var(--magenta));
+  height:1px;opacity:0.3;
+}
+.viz-line-1{top:56px;left:50%;width:0;transform-origin:left center;transform:rotate(120deg);width:80px;margin-left:-10px}
+.viz-line-2{bottom:54px;left:50%;width:80px;transform:translateX(-50%);height:1px;background:linear-gradient(90deg,var(--magenta),var(--green))}
+.viz-line-3{top:56px;right:50%;width:0;transform-origin:right center;transform:rotate(-120deg);width:80px;margin-right:-10px;background:linear-gradient(90deg,var(--green),var(--cyan))}
+
+.viz-center{
+  position:relative;z-index:3;
+  text-align:center;
+}
+.viz-count{
+  font-family:var(--font-mono);font-size:42px;
+  color:var(--cyan);
+  text-shadow:0 0 30px rgba(0,240,255,0.4);
+  line-height:1;
+}
+.viz-label{
+  font-size:9px;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:0.15em;
+  font-family:var(--font-mono);
+  margin-top:4px;
+}
+
+/* Animated pulse on rings */
+.viz-pulse{
+  position:absolute;
+  width:10px;height:10px;
+  border-radius:50%;
+  background:var(--cyan);
+  box-shadow:0 0 10px var(--cyan);
+  animation:pulseDot 4s ease-in-out infinite;
+}
+.viz-pulse:nth-child(5){
+  animation-delay:-1.3s;
+  background:var(--magenta);
+  box-shadow:0 0 10px var(--magenta);
+}
+.viz-pulse:nth-child(6){
+  animation-delay:-2.6s;
+  background:var(--green);
+  box-shadow:0 0 10px var(--green);
+}
+@keyframes pulseDot{
+  0%{top:0;left:50%;opacity:0;transform:translate(-50%,-50%)}
+  25%{top:50%;left:100%;opacity:1}
+  50%{top:100%;left:50%;opacity:1}
+  75%{top:50%;left:0;opacity:1}
+  100%{top:0;left:50%;opacity:0;transform:translate(-50%,-50%)}
+}
+
+/* ── Two Column Layout ── */
+.two-col{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:24px;
+  margin-bottom:48px;
+}
+
+.section-title{
+  font-family:var(--font-mono);font-size:14px;
+  color:var(--cyan);
+  text-transform:uppercase;letter-spacing:0.12em;
+  margin-bottom:20px;
+  display:flex;align-items:center;gap:10px;
+  padding-bottom:10px;
+  border-bottom:1px solid rgba(0,240,255,0.08);
+}
+.section-title svg{flex-shrink:0}
+.section-title.magenta{color:var(--magenta);border-bottom-color:rgba(255,0,229,0.08)}
+
+/* ── Product List ── */
+.product-list{display:flex;flex-direction:column;gap:12px}
+.product-item{
+  position:relative;
+  background:rgba(5,5,16,0.7);
+  border:1px solid rgba(0,240,255,0.08);
+  padding:16px 18px;
+  cursor:pointer;
+  transition:all 0.3s ease;
+}
+.product-item::before,.product-item::after{
+  content:'';position:absolute;width:10px;height:10px;
+  border-color:var(--cyan);border-style:solid;transition:all 0.3s;
+}
+.product-item::before{top:-1px;left:-1px;border-width:1px 0 0 1px}
+.product-item::after{bottom:-1px;right:-1px;border-width:0 1px 1px 0}
+.product-item:hover{
+  border-color:rgba(0,240,255,0.25);
+  background:rgba(0,240,255,0.03);
+  transform:translateX(4px);
+}
+.product-item-name{
+  font-family:var(--font-mono);font-size:14px;
+  color:var(--text);margin-bottom:4px;
+}
+.product-item-origin{
+  font-size:12px;color:var(--text-dim);
+}
+.stage-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 10px;font-size:10px;
+  font-family:var(--font-mono);
+  text-transform:uppercase;letter-spacing:0.1em;
+  border:1px solid;
+}
+.stage-badge.created{color:var(--cyan);border-color:rgba(0,240,255,0.3);background:rgba(0,240,255,0.06)}
+.stage-badge.in-transit{color:var(--magenta);border-color:rgba(255,0,229,0.3);background:rgba(255,0,229,0.06)}
+.stage-badge.delivered{color:var(--green);border-color:rgba(0,255,136,0.3);background:rgba(0,255,136,0.06)}
+.product-item-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+
+/* ── Activity Feed ── */
+.activity-feed{display:flex;flex-direction:column;gap:10px}
+.activity-item{
+  display:flex;align-items:flex-start;gap:12px;
+  padding:12px 14px;
+  background:rgba(255,0,229,0.02);
+  border:1px solid rgba(255,0,229,0.06);
+  border-left:2px solid var(--magenta);
+  transition:all 0.3s;
+}
+.activity-item:hover{background:rgba(255,0,229,0.05)}
+.activity-icon{
+  width:28px;height:28px;
+  border-radius:4px;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;
+  background:rgba(255,0,229,0.1);
+  border:1px solid rgba(255,0,229,0.15);
+}
+.activity-icon svg{width:14px;height:14px;color:var(--magenta)}
+.activity-text{font-size:13px;color:var(--text-dim);line-height:1.5}
+.activity-text strong{color:var(--text);font-weight:500}
+.activity-time{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px}
+
+/* ── Product Detail View ── */
+.detail-view{display:none}
+.detail-view.active{display:block}
+.main-view.hidden{display:none}
+
+.back-btn{
+  display:inline-flex;align-items:center;gap:8px;
+  color:var(--cyan);font-family:var(--font-mono);font-size:13px;
+  cursor:pointer;margin-bottom:24px;
+  text-transform:uppercase;letter-spacing:0.08em;
+  transition:all 0.2s;border:none;background:none;
+  padding:8px 0;
+}
+.back-btn:hover{color:var(--text);text-shadow:0 0 12px rgba(0,240,255,0.4)}
+
+.detail-header{
+  display:flex;justify-content:space-between;align-items:flex-start;
+  margin-bottom:32px;flex-wrap:wrap;gap:16px;
+}
+.detail-name{
+  font-family:var(--font-mono);font-size:28px;
+  color:var(--cyan);
+  text-shadow:0 0 24px rgba(0,240,255,0.3);
+}
+.detail-desc{
+  font-size:14px;color:var(--text-dim);
+  margin-top:6px;max-width:600px;
+}
+
+/* ── Progress Bar ── */
+.progress-wrap{margin-bottom:32px}
+.progress-stages{
+  display:flex;justify-content:space-between;
+  margin-bottom:8px;
+}
+.progress-stage{
+  font-family:var(--font-mono);font-size:11px;
+  text-transform:uppercase;letter-spacing:0.1em;
+  color:var(--text-muted);
+  transition:color 0.3s;
+}
+.progress-stage.active{color:var(--cyan)}
+.progress-stage.completed{color:var(--green)}
+.progress-bar{
+  height:3px;
+  background:rgba(255,255,255,0.05);
+  position:relative;
+  overflow:hidden;
+}
+.progress-fill{
+  height:100%;
+  background:linear-gradient(90deg,var(--cyan),var(--magenta),var(--green));
+  transition:width 0.8s cubic-bezier(0.22,1,0.36,1);
+  position:relative;
+}
+.progress-fill::after{
+  content:'';position:absolute;right:0;top:-3px;
+  width:8px;height:8px;border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 12px var(--green);
+}
+
+/* ── Info Grid ── */
+.info-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:16px;margin-bottom:32px;
+}
+.info-item{
+  padding:16px;
+  background:rgba(0,240,255,0.02);
+  border:1px solid rgba(0,240,255,0.06);
+}
+.info-item-label{
+  font-size:10px;font-family:var(--font-mono);
+  color:var(--text-muted);text-transform:uppercase;
+  letter-spacing:0.12em;margin-bottom:6px;
+}
+.info-item-value{
+  font-family:var(--font-mono);font-size:15px;
+  color:var(--text);word-break:break-all;
+}
+.info-item-value.cyan{color:var(--cyan)}
+
+/* ── Timeline ── */
+.timeline{margin-bottom:32px}
+.timeline-item{
+  display:flex;gap:20px;
+  position:relative;
+  padding-bottom:28px;
+}
+.timeline-item:last-child{padding-bottom:0}
+.timeline-line{
+  position:relative;
+  width:20px;display:flex;flex-direction:column;align-items:center;
+  flex-shrink:0;
+}
+.timeline-dot{
+  width:12px;height:12px;
+  border-radius:50%;
+  border:2px solid var(--cyan);
+  background:var(--bg);
+  z-index:1;
+  box-shadow:0 0 10px rgba(0,240,255,0.3);
+  flex-shrink:0;
+}
+.timeline-dot.magenta{border-color:var(--magenta);box-shadow:0 0 10px rgba(255,0,229,0.3)}
+.timeline-dot.green{border-color:var(--green);box-shadow:0 0 10px rgba(0,255,136,0.3)}
+.timeline-connector{
+  flex:1;width:1px;
+  background:linear-gradient(to bottom,rgba(0,240,255,0.2),rgba(0,240,255,0.05));
+  margin-top:4px;
+}
+.timeline-content{flex:1;padding-top:0}
+.timeline-stage{
+  font-family:var(--font-mono);font-size:13px;
+  color:var(--cyan);text-transform:uppercase;
+  letter-spacing:0.08em;
+}
+.timeline-stage.magenta{color:var(--magenta)}
+.timeline-stage.green{color:var(--green)}
+.timeline-location{font-size:13px;color:var(--text);margin-top:4px}
+.timeline-notes{font-size:12px;color:var(--text-dim);margin-top:2px;font-style:italic}
+.timeline-meta{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:6px}
+
+/* ── Handlers ── */
+.handlers-section{margin-bottom:32px}
+.handler-item{
+  display:flex;align-items:center;gap:12px;
+  padding:10px 14px;
+  border-bottom:1px solid rgba(0,240,255,0.04);
+}
+.handler-item:last-child{border-bottom:none}
+.handler-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 8px rgba(0,255,136,0.4);
+}
+.handler-addr{
+  font-family:var(--font-mono);font-size:13px;
+  color:var(--text-dim);
+}
+
+/* ── Detail Actions ── */
+.detail-actions{
+  display:flex;gap:12px;flex-wrap:wrap;
+}
+
+/* ── Modal ── */
+.modal-overlay{
+  position:fixed;inset:0;z-index:200;
+  background:rgba(5,5,16,0.7);
+  backdrop-filter:blur(12px);
+  display:flex;align-items:center;justify-content:center;
+  padding:24px;
+  opacity:0;pointer-events:none;
+  transition:opacity 0.3s ease;
+}
+.modal-overlay.active{opacity:1;pointer-events:auto}
+.modal{
+  position:relative;
+  max-width:480px;width:100%;
+  background:rgba(8,8,20,0.97);
+  border:1px solid rgba(0,240,255,0.15);
+  backdrop-filter:blur(20px);
+  padding:36px;
+  transform:translateY(20px) scale(0.96);
+  transition:transform 0.4s cubic-bezier(0.34,1.56,0.64,1);
+  box-shadow:0 0 60px rgba(0,240,255,0.08),0 0 120px rgba(255,0,229,0.04);
+}
+.modal::before,.modal::after{
+  content:'';position:absolute;width:20px;height:20px;
+  border-color:var(--cyan);border-style:solid;
+}
+.modal::before{top:-1px;left:-1px;border-width:2px 0 0 2px}
+.modal::after{top:-1px;right:-1px;border-width:2px 2px 0 0}
+.modal .modal-corners::before,.modal .modal-corners::after{
+  content:'';position:absolute;width:20px;height:20px;
+  border-color:var(--cyan);border-style:solid;
+}
+.modal .modal-corners::before{bottom:-1px;left:-1px;border-width:0 0 2px 2px}
+.modal .modal-corners::after{bottom:-1px;right:-1px;border-width:0 2px 2px 0}
+.modal-overlay.active .modal{transform:translateY(0) scale(1)}
+.modal-close{
+  position:absolute;top:14px;right:14px;
+  width:32px;height:32px;
+  background:rgba(0,240,255,0.05);border:1px solid rgba(0,240,255,0.1);
+  color:var(--text-dim);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all 0.2s;
+}
+.modal-close:hover{background:rgba(0,240,255,0.12);color:var(--cyan)}
+.modal-title{
+  font-family:var(--font-mono);font-size:18px;
+  color:var(--cyan);margin-bottom:6px;
+  text-transform:uppercase;letter-spacing:0.08em;
+}
+.modal-desc{
+  font-size:13px;color:var(--text-dim);
+  margin-bottom:24px;line-height:1.7;
+}
+
+/* ── Form Elements ── */
+.form-group{margin-bottom:18px}
+.form-label{
+  display:block;font-size:10px;font-weight:500;
+  color:var(--text-muted);text-transform:uppercase;
+  letter-spacing:0.1em;margin-bottom:6px;
+  font-family:var(--font-mono);
+}
+.form-input,.form-select{
+  width:100%;padding:12px 14px;
+  background:rgba(0,240,255,0.03);
+  border:1px solid rgba(0,240,255,0.1);
+  color:var(--text);
+  font-family:var(--font-body);font-size:14px;
+  outline:none;transition:all 0.2s;
+}
+.form-input:focus,.form-select:focus{
+  border-color:rgba(0,240,255,0.4);
+  box-shadow:0 0 20px rgba(0,240,255,0.06);
+}
+.form-input::placeholder{color:var(--text-muted)}
+textarea.form-input{resize:vertical;min-height:80px}
+.form-select{
+  appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2300f0ff' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 14px center;
+  padding-right:36px;
+  cursor:pointer;
+}
+.form-select option{background:#0a0a1a;color:var(--text)}
+
+/* ── Toast ── */
+.toast-container{
+  position:fixed;top:80px;right:24px;z-index:300;
+  display:flex;flex-direction:column;gap:8px;
+}
+.toast{
+  padding:14px 18px;
+  background:rgba(8,8,20,0.95);
+  border:1px solid rgba(0,240,255,0.15);
+  backdrop-filter:blur(16px);
+  font-size:13px;color:var(--text);
+  max-width:380px;
+  animation:toastIn 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  display:flex;align-items:center;gap:10px;
+  font-family:var(--font-body);
+}
+.toast.success{border-color:rgba(0,255,136,0.3);box-shadow:0 0 20px rgba(0,255,136,0.06)}
+.toast.error{border-color:rgba(255,34,85,0.3);box-shadow:0 0 20px rgba(255,34,85,0.06)}
+.toast.info{border-color:rgba(0,240,255,0.3);box-shadow:0 0 20px rgba(0,240,255,0.06)}
+.toast-icon{width:18px;height:18px;flex-shrink:0}
+.toast.success .toast-icon{color:var(--green)}
+.toast.error .toast-icon{color:var(--danger)}
+.toast.info .toast-icon{color:var(--cyan)}
+@keyframes toastIn{0%{opacity:0;transform:translateX(40px)}100%{opacity:1;transform:translateX(0)}}
+@keyframes toastOut{0%{opacity:1;transform:translateX(0)}100%{opacity:0;transform:translateX(40px)}}
+
+/* ── Footer ── */
+.footer{
+  position:relative;z-index:2;
+  text-align:center;padding:40px 24px;
+  border-top:1px solid rgba(0,240,255,0.06);
+  color:var(--text-muted);font-size:12px;
+  font-family:var(--font-mono);
+  letter-spacing:0.12em;text-transform:uppercase;
+}
+.footer::before{
+  content:'';position:absolute;top:-1px;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan),var(--magenta),transparent);
+  opacity:0.3;
+}
+
+/* ── Wallet Area ── */
+.wallet-info{display:flex;align-items:center;gap:10px}
+.wallet-addr{
+  font-size:12px;color:var(--text-dim);
+  font-family:var(--font-mono);
+}
+.status-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--green);
+  box-shadow:0 0 8px rgba(0,255,136,0.5);
+}
+
+/* ── Empty State ── */
+.empty-state{
+  text-align:center;padding:40px 20px;
+  color:var(--text-muted);font-size:13px;
+}
+.empty-state svg{margin-bottom:12px;opacity:0.4}
+
+/* ── Not Deployed Banner ── */
+
+/* ── Responsive ── */
+@media(max-width:900px){
+  .two-col{grid-template-columns:1fr}
+  .stats-section{flex-direction:column}
+  .stats-left,.stats-right{flex-direction:row;flex:auto}
+  .stat-card{flex:1;min-width:140px}
+}
+@media(max-width:600px){
+  .topbar{padding:0 16px}
+  .topbar-brand{font-size:16px}
+  .main{padding:24px 16px 60px}
+  .supply-viz{width:200px;height:200px}
+  .viz-count{font-size:32px}
+  .stats-left,.stats-right{flex-direction:column;width:100%}
+  .stat-card{flex:auto}
+  .detail-name{font-size:20px}
+  .modal{padding:24px}
+  .info-grid{grid-template-columns:1fr}
+  .detail-actions{flex-direction:column}
+  .detail-actions .btn{width:100%;justify-content:center}
+}
+
+/* ── Shimmer ── */
+.shimmer{
+  background:linear-gradient(90deg,transparent 0%,rgba(0,240,255,0.03) 50%,transparent 100%);
+  background-size:200% 100%;animation:shimmer 2s infinite;
+}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+</style>
+</head>
+<body>
+
+<!-- Holographic Mesh Background -->
+<div class="holo-mesh">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+  <div class="blob blob-4"></div>
+</div>
+<div class="grid-floor"></div>
+
+<!-- Floating Particles (generated by JS) -->
+<div class="particles" id="particles"></div>
+
+<!-- Top Bar -->
+<nav class="topbar">
+  <div class="topbar-brand">
+    <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+      <polygon points="16,2 28,9 28,23 16,30 4,23 4,9" stroke="var(--cyan)" stroke-width="1.5" fill="rgba(0,240,255,0.06)"/>
+      <polygon points="16,7 23,11 23,19 16,23 9,19 9,11" stroke="var(--cyan)" stroke-width="0.8" fill="rgba(0,240,255,0.03)" opacity="0.6"/>
+      <circle cx="16" cy="16" r="3" fill="var(--cyan)" opacity="0.8"/>
+    </svg>
+    <span class="logo-text">TraceChain</span>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn btn-primary" onclick="openModal('createModal')" id="createProductBtn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Create Product
+    </button>
+    <div id="walletArea">
+      <button class="btn btn-secondary" id="connectBtn" onclick="connectWallet()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="3"/><path d="M16 14h.01"/><path d="M2 10h20"/></svg>
+        Connect
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Main Content -->
+<div class="main">
+
+  <!-- Main View (product list + activity) -->
+  <div class="main-view" id="mainView">
+
+    <!-- Stats Section with Center Visualization -->
+    <div class="stats-section">
+      <div class="stats-left">
+        <div class="stat-card">
+          <div class="stat-label">Total Products</div>
+          <div class="stat-value cyan" id="statTotal">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">In Transit</div>
+          <div class="stat-value magenta" id="statTransit">--</div>
+        </div>
+      </div>
+
+      <div class="viz-wrap">
+        <div class="supply-viz">
+          <div class="viz-ring"></div>
+          <div class="viz-ring"></div>
+          <div class="viz-ring"></div>
+          <div class="viz-pulse"></div>
+          <div class="viz-pulse"></div>
+          <div class="viz-pulse"></div>
+          <div class="viz-node created">
+            <div class="viz-node-inner">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg>
+            </div>
+          </div>
+          <div class="viz-node transit">
+            <div class="viz-node-inner">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            </div>
+          </div>
+          <div class="viz-node delivered">
+            <div class="viz-node-inner">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+          </div>
+          <div class="viz-center">
+            <div class="viz-count" id="vizCount">--</div>
+            <div class="viz-label">Products</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-right">
+        <div class="stat-card magenta">
+          <div class="stat-label">Delivered</div>
+          <div class="stat-value green" id="statDelivered">--</div>
+        </div>
+        <div class="stat-card magenta">
+          <div class="stat-label">Network</div>
+          <div class="stat-value magenta" id="statNetwork">--</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Two Column: Product Registry + Activity -->
+    <div class="two-col">
+      <!-- LEFT: Product Registry -->
+      <div>
+        <div class="section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M2 9h20M10 3v18"/></svg>
+          Product Registry
+        </div>
+        <div class="product-list" id="productList">
+          <div class="empty-state">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M2 9h20M10 3v18"/></svg>
+            <p>Connect wallet to view products</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Recent Activity -->
+      <div>
+        <div class="section-title magenta">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Recent Activity
+        </div>
+        <div class="activity-feed" id="activityFeed">
+          <div class="empty-state">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <p>No activity yet</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Product Detail View -->
+  <div class="detail-view" id="detailView">
+    <button class="back-btn" onclick="showMainView()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      Back to Registry
+    </button>
+    <div id="detailContent"></div>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div class="footer">TraceChain &mdash; Decentralized Supply Tracking</div>
+
+<!-- Create Product Modal -->
+<div class="modal-overlay" id="createModal">
+  <div class="modal">
+    <div class="modal-corners"></div>
+    <button class="modal-close" onclick="closeModal('createModal')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div class="modal-title">Create Product</div>
+    <div class="modal-desc">Register a new product on the supply chain. All data is stored immutably on-chain.</div>
+    <div class="form-group">
+      <label class="form-label">Product Name</label>
+      <input type="text" class="form-input" id="productName" placeholder="Enter product name">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <textarea class="form-input" id="productDesc" placeholder="Product description..."></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Origin Location</label>
+      <input type="text" class="form-input" id="productOrigin" placeholder="City, Country">
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="createProduct()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Register Product
+    </button>
+  </div>
+</div>
+
+<!-- Update Stage Modal -->
+<div class="modal-overlay" id="stageModal">
+  <div class="modal">
+    <div class="modal-corners"></div>
+    <button class="modal-close" onclick="closeModal('stageModal')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div class="modal-title">Update Stage</div>
+    <div class="modal-desc">Advance this product to its next supply chain stage.</div>
+    <div class="form-group">
+      <label class="form-label">New Stage</label>
+      <select class="form-select" id="stageSelect">
+        <option value="0">Created</option>
+        <option value="1">In Transit</option>
+        <option value="2">Delivered</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Location</label>
+      <input type="text" class="form-input" id="stageLocation" placeholder="Current location">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes</label>
+      <textarea class="form-input" id="stageNotes" placeholder="Additional notes..."></textarea>
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="updateStage()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+      Confirm Update
+    </button>
+  </div>
+</div>
+
+<!-- Add Handler Modal -->
+<div class="modal-overlay" id="handlerModal">
+  <div class="modal">
+    <div class="modal-corners"></div>
+    <button class="modal-close" onclick="closeModal('handlerModal')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div class="modal-title">Add Handler</div>
+    <div class="modal-desc">Authorize a new handler address to manage this product.</div>
+    <div class="form-group">
+      <label class="form-label">Handler Address</label>
+      <input type="text" class="form-input" id="handlerAddress" placeholder="0x...">
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="addHandler()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+      Authorize Handler
+    </button>
+  </div>
+</div>
+
+<script>
+/* ── Contract Config ── */
+const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000000";
+const CONTRACT_ABI = [
+  "function createProduct(string name, string description, string origin) returns (uint256)",
+  "function updateStage(uint256 productId, uint8 newStage, string location, string notes)",
+  "function addHandler(uint256 productId, address handler)",
+  "function getProduct(uint256 productId) view returns (uint256 id, string name, string description, string origin, address manufacturer, uint8 currentStage, uint256 createdAt)",
+  "function getCheckpoints(uint256 productId) view returns (tuple(uint256 timestamp, address handler, uint8 stage, string location, string notes)[])",
+  "function getProductCount() view returns (uint256)",
+  "function isHandler(uint256 productId, address handler) view returns (bool)",
+  "function pause()",
+  "function unpause()",
+  "event ProductCreated(uint256 indexed id, address indexed manufacturer, string name)",
+  "event StageUpdated(uint256 indexed id, uint8 stage, address indexed handler, string location)",
+  "event HandlerAdded(uint256 indexed id, address indexed handler)"
+];
+const BOTCHAIN_TESTNET = {
+  chainId: '0x3C8',
+  chainName: 'BOT Chain Testnet',
+  rpcUrls: ['https://rpc.bohr.life'],
+  nativeCurrency: { name: 'BOT', symbol: 'BOT', decimals: 18 },
+  blockExplorerUrls: ['https://scan.bohr.life']
+};
+const STAGE_NAMES = ['Created', 'In Transit', 'Delivered'];
+const STAGE_CLASSES = ['created', 'in-transit', 'delivered'];
+const CONTRACT_DEPLOYED = CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000";
+
+let provider, signer, contract, userAddress;
+let products = [];
+let activities = [];
+let currentProductId = null;
+
+/* ── Particles ── */
+(function initParticles(){
+  const c = document.getElementById('particles');
+  const colors = ['var(--cyan)', 'var(--magenta)', 'var(--cyan)', 'var(--magenta)', 'var(--green)'];
+  for(let i = 0; i < 30; i++){
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const size = Math.random() * 3 + 1;
+    const clr = colors[Math.floor(Math.random() * colors.length)];
+    p.style.cssText = `
+      width:${size}px;height:${size}px;
+      background:${clr};
+      box-shadow:0 0 ${size*2}px ${clr};
+      left:${Math.random()*100}%;
+      animation-duration:${Math.random()*15+10}s;
+      animation-delay:${Math.random()*15}s;
+    `;
+    c.appendChild(p);
+  }
+})();
+
+/* ── Toast ── */
+function toast(msg, type='info'){
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  const icons = {
+    success: '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>',
+    error: '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    info: '<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+  };
+  t.innerHTML = `${icons[type] || icons.info}${msg}`;
+  c.appendChild(t);
+  setTimeout(() => { t.style.animation = 'toastOut 0.3s forwards'; setTimeout(() => t.remove(), 300); }, 4000);
+}
+
+function shortAddr(a){ return a ? a.slice(0,6) + '...' + a.slice(-4) : ''; }
+function formatTime(ts){
+  if(!ts) return '--';
+  const d = new Date(Number(ts)*1000);
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + ' ' + d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+}
+
+/* ── Modal ── */
+function openModal(id){
+  if(!userAddress && id !== 'createModal') return toast('Connect wallet first','error');
+  document.getElementById(id).classList.add('active');
+}
+function closeModal(id){ document.getElementById(id).classList.remove('active'); }
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if(e.target === o) closeModal(o.id); });
+});
+
+/* ── View Toggle ── */
+function showMainView(){
+  document.getElementById('mainView').classList.remove('hidden');
+  document.getElementById('detailView').classList.remove('active');
+  currentProductId = null;
+}
+function showDetailView(productId){
+  currentProductId = productId;
+  document.getElementById('mainView').classList.add('hidden');
+  document.getElementById('detailView').classList.add('active');
+  loadProductDetail(productId);
+}
+
+/* ── Wallet ── */
+async function connectWallet(){
+  if(!window.ethereum) return toast('No wallet detected. Install MetaMask.','error');
+  try{
+    const accounts = await window.ethereum.request({method:'eth_requestAccounts'});
+    userAddress = accounts[0];
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+
+    try{
+      await window.ethereum.request({method:'wallet_switchEthereumChain',params:[{chainId:BOTCHAIN_TESTNET.chainId}]});
+    }catch(e){
+      if(e.code === 4902){
+        await window.ethereum.request({method:'wallet_addEthereumChain',params:[BOTCHAIN_TESTNET]});
+      }
+    }
+
+    if(CONTRACT_DEPLOYED){
+      contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+    }
+
+    document.getElementById('walletArea').innerHTML = `
+      <div class="wallet-info">
+        <div class="status-dot"></div>
+        <span class="wallet-addr">${shortAddr(userAddress)}</span>
+        <button class="btn btn-danger" onclick="disconnect()" style="padding:6px 12px;font-size:11px">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>`;
+
+    toast('Wallet connected','success');
+
+    loadStats();
+  }catch(e){
+    toast('Connection failed: '+(e.message||e),'error');
+  }
+}
+
+function disconnect(){
+  userAddress=null;provider=null;signer=null;contract=null;
+  document.getElementById('walletArea').innerHTML = `
+    <button class="btn btn-secondary" id="connectBtn" onclick="connectWallet()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="14" rx="3"/><path d="M16 14h.01"/><path d="M2 10h20"/></svg>
+      Connect
+    </button>`;
+  resetUI();
+  showMainView();
+  toast('Disconnected','info');
+}
+
+function resetUI(){
+  ['statTotal','statTransit','statDelivered','statNetwork','vizCount'].forEach(id=>{
+    document.getElementById(id).textContent = '--';
+  });
+  products = [];
+  activities = [];
+  renderProducts();
+  renderActivity();
+}
+
+/* ── Load Stats ── */
+async function loadStats(){
+  if(!CONTRACT_DEPLOYED){
+    document.getElementById('statTotal').textContent = '0';
+    document.getElementById('statTransit').textContent = '0';
+    document.getElementById('statDelivered').textContent = '0';
+    document.getElementById('statNetwork').textContent = shortAddr(userAddress);
+    document.getElementById('vizCount').textContent = '0';
+    renderProducts();
+    renderActivity();
+    return;
+  }
+  try{
+    const count = await contract.getProductCount();
+    const total = Number(count);
+    document.getElementById('statTotal').textContent = total;
+    document.getElementById('vizCount').textContent = total;
+
+    products = [];
+    activities = [];
+    let inTransit = 0, delivered = 0;
+
+    for(let i = 1; i <= total; i++){
+      try{
+        const p = await contract.getProduct(i);
+        const product = {
+          id: Number(p.id),
+          name: p.name,
+          description: p.description,
+          origin: p.origin,
+          manufacturer: p.manufacturer,
+          currentStage: Number(p.currentStage),
+          createdAt: Number(p.createdAt)
+        };
+        products.push(product);
+        if(product.currentStage === 1) inTransit++;
+        if(product.currentStage === 2) delivered++;
+
+        activities.push({
+          type: 'create',
+          productName: product.name,
+          time: product.createdAt,
+          detail: `Product created from ${product.origin}`
+        });
+
+        try{
+          const checkpoints = await contract.getCheckpoints(i);
+          checkpoints.forEach(cp => {
+            activities.push({
+              type: 'update',
+              productName: product.name,
+              time: Number(cp.timestamp),
+              detail: `Stage updated to ${STAGE_NAMES[Number(cp.stage)] || 'Unknown'} at ${cp.location}`
+            });
+          });
+        }catch(e){}
+      }catch(e){ console.error('Error loading product', i, e); }
+    }
+
+    document.getElementById('statTransit').textContent = inTransit;
+    document.getElementById('statDelivered').textContent = delivered;
+    document.getElementById('statNetwork').textContent = shortAddr(userAddress);
+
+    activities.sort((a,b) => b.time - a.time);
+    renderProducts();
+    renderActivity();
+  }catch(e){
+    console.error('loadStats error:', e);
+    toast('Error loading data','error');
+  }
+}
+
+/* ── Render Products ── */
+function renderProducts(){
+  const list = document.getElementById('productList');
+  if(products.length === 0){
+    list.innerHTML = `<div class="empty-state">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M2 9h20M10 3v18"/></svg>
+      <p>${userAddress ? 'No products registered yet' : 'Connect wallet to view products'}</p>
+    </div>`;
+    return;
+  }
+  list.innerHTML = products.map(p => `
+    <div class="product-item" onclick="showDetailView(${p.id})">
+      <div class="product-item-top">
+        <div class="product-item-name">${escHtml(p.name)}</div>
+        <div class="stage-badge ${STAGE_CLASSES[p.currentStage] || ''}">${STAGE_NAMES[p.currentStage] || 'Unknown'}</div>
+      </div>
+      <div class="product-item-origin">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        ${escHtml(p.origin)}
+      </div>
+    </div>
+  `).join('');
+}
+
+/* ── Render Activity ── */
+function renderActivity(){
+  const feed = document.getElementById('activityFeed');
+  if(activities.length === 0){
+    feed.innerHTML = `<div class="empty-state">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <p>No activity yet</p>
+    </div>`;
+    return;
+  }
+  feed.innerHTML = activities.slice(0,10).map(a => `
+    <div class="activity-item">
+      <div class="activity-icon">
+        ${a.type === 'create'
+          ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'
+          : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>'}
+      </div>
+      <div>
+        <div class="activity-text"><strong>${escHtml(a.productName)}</strong> &mdash; ${escHtml(a.detail)}</div>
+        <div class="activity-time">${formatTime(a.time)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+/* ── Load Product Detail ── */
+async function loadProductDetail(productId){
+  const content = document.getElementById('detailContent');
+  content.innerHTML = '<div class="empty-state shimmer" style="padding:60px">Loading product data...</div>';
+
+  let product, checkpoints = [];
+
+  if(!CONTRACT_DEPLOYED){
+    const p = products.find(x => x.id === productId);
+    if(!p){ content.innerHTML = '<div class="empty-state">Product not found</div>'; return; }
+    product = p;
+  } else {
+    try{
+      const p = await contract.getProduct(productId);
+      product = {
+        id: Number(p.id),
+        name: p.name,
+        description: p.description,
+        origin: p.origin,
+        manufacturer: p.manufacturer,
+        currentStage: Number(p.currentStage),
+        createdAt: Number(p.createdAt)
+      };
+      try{
+        const cps = await contract.getCheckpoints(productId);
+        checkpoints = cps.map(cp => ({
+          timestamp: Number(cp.timestamp),
+          handler: cp.handler,
+          stage: Number(cp.stage),
+          location: cp.location,
+          notes: cp.notes
+        }));
+      }catch(e){}
+    }catch(e){
+      content.innerHTML = '<div class="empty-state">Error loading product</div>';
+      toast('Failed to load product','error');
+      return;
+    }
+  }
+
+  const progressPercent = product.currentStage === 0 ? 5 : product.currentStage === 1 ? 52 : 100;
+  const stageColors = ['cyan','magenta','green'];
+
+  content.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-name">${escHtml(product.name)}</div>
+        <div class="detail-desc">${escHtml(product.description || 'No description provided')}</div>
+      </div>
+      <div class="stage-badge ${STAGE_CLASSES[product.currentStage]}">${STAGE_NAMES[product.currentStage]}</div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-stages">
+        ${STAGE_NAMES.map((s,i) => `<div class="progress-stage ${i < product.currentStage ? 'completed' : i === product.currentStage ? 'active' : ''}">${s}</div>`).join('')}
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" style="width:${progressPercent}%"></div>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="info-item-label">Origin</div>
+        <div class="info-item-value">${escHtml(product.origin)}</div>
+      </div>
+      <div class="info-item">
+        <div class="info-item-label">Manufacturer</div>
+        <div class="info-item-value cyan">${shortAddr(product.manufacturer)}</div>
+      </div>
+      <div class="info-item">
+        <div class="info-item-label">Created</div>
+        <div class="info-item-value">${formatTime(product.createdAt)}</div>
+      </div>
+      <div class="info-item">
+        <div class="info-item-label">Checkpoints</div>
+        <div class="info-item-value">${checkpoints.length}</div>
+      </div>
+    </div>
+
+    ${checkpoints.length > 0 ? `
+    <div class="section-title" style="margin-top:32px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Supply Chain Timeline
+    </div>
+    <div class="timeline">
+      ${checkpoints.map((cp,i) => {
+        const color = stageColors[cp.stage] || 'cyan';
+        return `
+        <div class="timeline-item">
+          <div class="timeline-line">
+            <div class="timeline-dot ${color}"></div>
+            ${i < checkpoints.length-1 ? '<div class="timeline-connector"></div>' : ''}
+          </div>
+          <div class="timeline-content">
+            <div class="timeline-stage ${color}">${STAGE_NAMES[cp.stage] || 'Unknown'}</div>
+            <div class="timeline-location">${escHtml(cp.location)}</div>
+            ${cp.notes ? `<div class="timeline-notes">${escHtml(cp.notes)}</div>` : ''}
+            <div class="timeline-meta">${shortAddr(cp.handler)} &middot; ${formatTime(cp.timestamp)}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>` : `
+    <div class="section-title" style="margin-top:32px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Supply Chain Timeline
+    </div>
+    <div class="empty-state" style="padding:24px">No checkpoints recorded yet</div>`}
+
+    <div class="handlers-section" style="margin-top:32px">
+      <div class="section-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+        Authorized Handlers
+      </div>
+      <div class="hud-card" style="padding:0">
+        <div class="corner-br"></div>
+        <div class="handler-item">
+          <div class="handler-dot"></div>
+          <div class="handler-addr">${shortAddr(product.manufacturer)} (manufacturer)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-actions" style="margin-top:24px">
+      <button class="btn btn-primary" onclick="openStageModal(${product.id})">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        Update Stage
+      </button>
+      <button class="btn btn-secondary" onclick="openHandlerModal(${product.id})">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+        Add Handler
+      </button>
+    </div>
+  `;
+}
+
+/* ── Open modals with product context ── */
+function openStageModal(productId){
+  currentProductId = productId;
+  openModal('stageModal');
+}
+function openHandlerModal(productId){
+  currentProductId = productId;
+  openModal('handlerModal');
+}
+
+/* ── Create Product ── */
+async function createProduct(){
+  if(!userAddress) return toast('Connect wallet first','error');
+  const name = document.getElementById('productName').value.trim();
+  const desc = document.getElementById('productDesc').value.trim();
+  const origin = document.getElementById('productOrigin').value.trim();
+  if(!name) return toast('Enter a product name','error');
+  if(!origin) return toast('Enter an origin location','error');
+
+  if(!CONTRACT_DEPLOYED){
+    toast('Contract not deployed','error');
+    return;
+  }
+
+  try{
+    toast('Submitting transaction...','info');
+    const tx = await contract.createProduct(name, desc, origin);
+    toast('Transaction sent, confirming...','info');
+    await tx.wait();
+    toast('Product created successfully','success');
+    closeModal('createModal');
+    document.getElementById('productName').value = '';
+    document.getElementById('productDesc').value = '';
+    document.getElementById('productOrigin').value = '';
+    loadStats();
+  }catch(e){
+    toast('Failed: '+(e.reason||e.message||e),'error');
+  }
+}
+
+/* ── Update Stage ── */
+async function updateStage(){
+  if(!userAddress) return toast('Connect wallet first','error');
+  if(!CONTRACT_DEPLOYED) return toast('Contract not deployed','error');
+  const newStage = parseInt(document.getElementById('stageSelect').value);
+  const location = document.getElementById('stageLocation').value.trim();
+  const notes = document.getElementById('stageNotes').value.trim();
+  if(!location) return toast('Enter a location','error');
+
+  try{
+    toast('Submitting stage update...','info');
+    const tx = await contract.updateStage(currentProductId, newStage, location, notes);
+    toast('Transaction sent, confirming...','info');
+    await tx.wait();
+    toast('Stage updated successfully','success');
+    closeModal('stageModal');
+    document.getElementById('stageLocation').value = '';
+    document.getElementById('stageNotes').value = '';
+    loadProductDetail(currentProductId);
+    loadStats();
+  }catch(e){
+    toast('Failed: '+(e.reason||e.message||e),'error');
+  }
+}
+
+/* ── Add Handler ── */
+async function addHandler(){
+  if(!userAddress) return toast('Connect wallet first','error');
+  if(!CONTRACT_DEPLOYED) return toast('Contract not deployed','error');
+  const handler = document.getElementById('handlerAddress').value.trim();
+  if(!handler || !ethers.isAddress(handler)) return toast('Enter a valid address','error');
+
+  try{
+    toast('Adding handler...','info');
+    const tx = await contract.addHandler(currentProductId, handler);
+    toast('Transaction sent, confirming...','info');
+    await tx.wait();
+    toast('Handler authorized successfully','success');
+    closeModal('handlerModal');
+    document.getElementById('handlerAddress').value = '';
+    loadProductDetail(currentProductId);
+  }catch(e){
+    toast('Failed: '+(e.reason||e.message||e),'error');
+  }
+}
+
+/* ── HTML Escape ── */
+function escHtml(s){
+  if(!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+/* ── Handle account/chain changes ── */
+if(window.ethereum){
+  window.ethereum.on('accountsChanged', accounts => {
+    if(accounts.length === 0) disconnect();
+    else { userAddress = accounts[0]; connectWallet(); }
+  });
+  window.ethereum.on('chainChanged', () => window.location.reload());
+}
+
+/* ── Init ── */
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "tracechain",
+  "version": "1.0.0",
+  "description": "BOT Chain Supply Chain Tracker",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "test": "npx hardhat test",
+    "deploy:testnet": "npx hardhat run scripts/deploy.js --network botchain_testnet",
+    "deploy:mainnet": "npx hardhat run scripts/deploy.js --network botchain"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^16.4.0",
+    "hardhat": "^2.22.0",
+    "solc": "^0.8.20"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.0"
+  }
+}
